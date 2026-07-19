@@ -1,0 +1,677 @@
+/* ==========================================================================
+   台股融資維持率查詢 — style.css (FN-031)
+   純 CSS，無外部 CDN、無框架依賴
+   ========================================================================== */
+
+:root {
+  --color-bg: #f2f4f7;
+  --color-card-bg: #ffffff;
+  --color-text: #1f2937;
+  --color-muted: #6b7280;
+  --color-border: #e5e7eb;
+  --color-primary: #2563eb;
+  --color-primary-dark: #1d4ed8;
+
+  --color-danger: #dc2626;
+  --color-danger-bg: #fee2e2;
+  --color-warn: #ea580c;
+  --color-warn-bg: #ffedd5;
+  --color-safe: #16a34a;
+  --color-safe-bg: #dcfce7;
+  --color-na: #6b7280;
+  --color-na-bg: #f3f4f6;
+
+  --radius: 12px;
+  --shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei",
+    -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+}
+
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.app-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.app-header h1 {
+  font-size: 1.6rem;
+  margin: 0 0 4px;
+}
+
+.app-header .subtitle {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+/* -------------------- 卡片 -------------------- */
+.card {
+  background: var(--color-card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+/* -------------------- 查詢表單 -------------------- */
+.query-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 160px;
+}
+
+.form-row label {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.form-row input {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 1rem;
+  width: 100%;
+}
+
+.form-row input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.form-row-btn {
+  flex: 0 0 auto;
+}
+
+#submit-btn {
+  padding: 10px 24px;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+#submit-btn:hover:not(:disabled) {
+  background: var(--color-primary-dark);
+}
+
+#submit-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* -------------------- loading -------------------- */
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* -------------------- error -------------------- */
+.error-box {
+  margin-top: 20px;
+  padding: 14px 16px;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+
+/* -------------------- 通用 hidden -------------------- */
+.hidden {
+  display: none !important;
+}
+
+/* -------------------- 結果卡片 -------------------- */
+.result-box:empty {
+  margin-top: 0;
+}
+
+.result-card {
+  margin-top: 24px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 20px;
+}
+
+.result-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.result-head .stock-code {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.result-head .stock-name {
+  font-size: 1.05rem;
+  color: var(--color-muted);
+}
+
+.market-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: var(--color-na-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+/* 即時/收盤 pill */
+.price-type-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.price-type-pill.intraday {
+  background: var(--color-safe);
+}
+
+.price-type-pill.closed {
+  background: #9ca3af;
+}
+
+.fallback-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  background: var(--color-warn-bg);
+  color: var(--color-warn);
+  border: 1px solid rgba(234, 88, 12, 0.3);
+  margin-left: 4px;
+}
+
+/* -------------------- 資訊區塊 -------------------- */
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 480px) {
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.info-block {
+  background: #f9fafb;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.info-block .info-label {
+  font-size: 0.78rem;
+  color: var(--color-muted);
+  margin-bottom: 4px;
+}
+
+.info-block .info-value {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.info-block .info-sub {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  margin-top: 4px;
+}
+
+.info-block .no-data {
+  color: var(--color-na);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* -------------------- 維持率大字 -------------------- */
+.ratio-section {
+  text-align: center;
+  padding: 20px 12px;
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+  position: relative;
+}
+
+.ratio-label {
+  font-size: 0.9rem;
+  color: var(--color-muted);
+  margin-bottom: 6px;
+}
+
+.ratio-big {
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.ratio-big .unit {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.ratio-tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  cursor: help;
+}
+
+.ratio-tooltip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.1);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.ratio-tooltip-text {
+  display: none;
+  position: absolute;
+  bottom: 130%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2937;
+  color: #fff;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: normal;
+  width: 260px;
+  text-align: left;
+  z-index: 10;
+  box-shadow: var(--shadow);
+}
+
+.ratio-tooltip-wrap:hover .ratio-tooltip-text,
+.ratio-tooltip-wrap:focus .ratio-tooltip-text {
+  display: block;
+}
+
+/* 警戒色 class（依 classify_warning 結果套用） */
+.w-danger {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.w-warn {
+  background: var(--color-warn-bg);
+  color: var(--color-warn);
+}
+
+.w-safe {
+  background: var(--color-safe-bg);
+  color: var(--color-safe);
+}
+
+.w-na {
+  background: var(--color-na-bg);
+  color: var(--color-na);
+}
+
+/* -------------------- 公式明細 -------------------- */
+.formula-block {
+  background: #f9fafb;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 0.85rem;
+  margin-bottom: 16px;
+}
+
+.formula-block .formula-title {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  margin-bottom: 6px;
+}
+
+.formula-block code {
+  display: block;
+  background: #eef1f5;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* -------------------- 來源/時間戳 -------------------- */
+.result-meta {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  text-align: right;
+}
+
+/* -------------------- 免責說明 -------------------- */
+.disclaimer {
+  background: var(--color-card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px 20px;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.disclaimer h2 {
+  font-size: 0.95rem;
+  color: var(--color-text);
+  margin: 0 0 8px;
+}
+
+.disclaimer code {
+  background: #eef1f5;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+}
+
+.disclaimer .source-note {
+  margin-bottom: 0;
+}
+
+/* -------------------- footer -------------------- */
+.app-footer {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  margin-top: 20px;
+}
+
+/* ==========================================================================
+   融資維持率警示清單（F-010）
+   ========================================================================== */
+
+:root {
+  --color-warn1: #ea580c;
+  --color-warn1-bg: #ffedd5;
+  --color-warn2: #ca8a04;
+  --color-warn2-bg: #fef9c3;
+}
+
+.alerts-section {
+  padding: 24px;
+}
+
+.alerts-title {
+  font-size: 1.15rem;
+  margin: 0 0 4px;
+}
+
+.alerts-desc {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  margin: 0 0 16px;
+}
+
+.alerts-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  margin-bottom: 14px;
+}
+
+.alerts-controls .form-row {
+  flex: 1 1 160px;
+}
+
+.alerts-controls select {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 1rem;
+  width: 100%;
+  background: #fff;
+  color: var(--color-text);
+}
+
+.alerts-controls select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+#alert-scan-btn {
+  padding: 10px 24px;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+#alert-scan-btn:hover:not(:disabled) {
+  background: var(--color-primary-dark);
+}
+
+#alert-scan-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* -------------------- 色帶圖例 -------------------- */
+.alerts-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 16px;
+  font-size: 0.78rem;
+  color: var(--color-muted);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+/* 二階警戒色（沿用 w-danger / w-safe，補 warn1 / warn2） */
+.w-warn1 {
+  background: var(--color-warn1-bg);
+  color: var(--color-warn1);
+}
+
+.w-warn2 {
+  background: var(--color-warn2-bg);
+  color: var(--color-warn2);
+}
+
+/* -------------------- 統計列 -------------------- */
+.alert-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  font-size: 0.82rem;
+  color: var(--color-muted);
+  margin-bottom: 12px;
+}
+
+.alert-stats strong {
+  color: var(--color-text);
+}
+
+/* -------------------- 表格 -------------------- */
+.alert-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.alert-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.alert-table thead th {
+  position: sticky;
+  top: 0;
+  background: #f9fafb;
+  color: var(--color-muted);
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.alert-table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.alert-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.alert-table tbody tr {
+  border-left: 4px solid transparent;
+}
+
+.alert-table tbody tr.w-danger {
+  border-left-color: var(--color-danger);
+  background: rgba(220, 38, 38, 0.06);
+}
+
+.alert-table tbody tr.w-warn1 {
+  border-left-color: var(--color-warn1);
+  background: rgba(234, 88, 12, 0.06);
+}
+
+.alert-table tbody tr.w-warn2 {
+  border-left-color: var(--color-warn2);
+  background: rgba(202, 138, 4, 0.06);
+}
+
+.alert-table tbody tr.w-safe {
+  border-left-color: var(--color-safe);
+  background: rgba(22, 163, 74, 0.05);
+}
+
+.alert-table .ratio-cell {
+  font-weight: 700;
+}
+
+.alert-table .band-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.alert-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 480px) {
+  .alerts-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .alerts-controls .form-row-btn button {
+    width: 100%;
+  }
+}
+
+/* 警示清單：均價天數與除權還原標記 */
+.avg-days { color: #888; font-size: 0.82em; margin-left: 2px; }
+.adj-tag {
+  display: inline-block; margin-left: 4px; padding: 0 4px;
+  font-size: 0.72em; color: #8a5a00; background: #fff3d6;
+  border: 1px solid #e6c675; border-radius: 3px; vertical-align: middle;
+}
+
+/* 進階選項收合 */
+details.advanced { margin: 6px 0 10px; }
+details.advanced > summary {
+  cursor: pointer; font-size: 0.86rem; color: #4a6fa5; user-select: none;
+  padding: 4px 0; list-style: revert;
+}
+details.advanced > summary:hover { text-decoration: underline; }
+details.advanced[open] > summary { margin-bottom: 6px; }
+details.advanced small { color: #888; font-weight: 400; }

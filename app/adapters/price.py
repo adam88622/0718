@@ -1,0 +1,101 @@
+"""FN-010：現價 adapter（TWSE MIS getStockInfo，上市/上櫃共用）。
+
+取 `msgArray[0].z` 為現價；`z` 為 "-"（當盤無成交）或空值時，改採
+最佳買賣 `a`(賣)/`b`(買) 中間價 fallback，再退而使用昨收 `y`，並標記
+`is_fallback=True`（見 docs/architecture.md §8 修正第 2 點）。
+
+`price_type`（即時/收盤）委由 `app.utils.trading_session.is_intraday_for`
+依資料日期 `d` 與系統今日比對判斷，避免假日誤標（§8 修正第 3 點）。
+
+端點無回應或解析失敗一律降級為 `no_data_block("TWSE-MIS")`，不拋例外。
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from app.config import MIS_REFERER, MIS_STOCK_INFO_URL
+from app.utils.errors import no_data_block
+from app.utils.trading_session import is_intraday_for
+
+__all__ = ["fetch_price"]
+
+_SOURCE = "TWSE-MIS"
+
+
+def _to_float(value: Any) -> float | None:
+    """安全轉 float；`None`/空字串/"-" /無法解析一律回 None。"""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text == "-":
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _best_quote_price(field: Any) -> float | None:
+    """解析 MIS 最佳買/賣欄位（底線分隔多檔），取第一檔（最佳）價格。"""
+    if field is None:
+        return None
+    text = str(field).strip()
+    if not text:
+        return None
+    first = text.split("_")[0]
+    return _to_float(first)
+
+
+async def fetch_price(code: str, market: str, client: Any) -> dict[str, Any]:
+    """取單一代號現價，回傳與 `PriceBlock` 相容的 dict。
+
+    參數：
+        code: 已正規化的 4 碼股票代號。
+        market: "tse" 或 "otc"（由 `detect_market` 決定）。
+        client: 共用 httpx.AsyncClient。
+    """
+    url = MIS_STOCK_INFO_URL.format(prefix=market, code=code)
+    try:
+        resp = await client.get(url, headers={"Referer": MIS_REFERER})
+        resp.raise_for_status()
+        data = resp.json()
+        msg_array = data.get("msgArray") if isinstance(data, dict) else None
+        if not msg_array:
+            return no_data_block(_SOURCE)
+        msg: dict[str, Any] = msg_array[0]
+    except Exception:  # noqa: BLE001 - 端點無回應/解析失敗 → 降級
+        return no_data_block(_SOURCE)
+
+    try:
+        prev_close = _to_float(msg.get("y"))
+        value = _to_float(msg.get("z"))
+        is_fallback = False
+
+        if value is None:
+            # z 為 "-" 或無法解析 → 中間價 fallback，再退昨收
+            best_ask = _best_quote_price(msg.get("a"))
+            best_bid = _best_quote_price(msg.get("b"))
+            if best_ask is not None and best_bid is not None:
+                value = round((best_ask + best_bid) / 2, 2)
+            else:
+                value = prev_close
+            is_fallback = True
+
+        data_date = str(msg.get("d") or "")
+        data_time = str(msg.get("t") or "")
+        price_type = is_intraday_for(data_date) if data_date else "收盤"
+        as_of = f"{data_time} / {data_date}"
+
+        return {
+            "value": value,
+            "price_type": price_type,
+            "is_fallback": is_fallback,
+            "prev_close": prev_close,
+            "as_of": as_of,
+            "name": msg.get("n"),
+            "source": _SOURCE,
+            "status": "ok",
+        }
+    except Exception:  # noqa: BLE001 - 保底，任何解析例外一律降級
+        return no_data_block(_SOURCE)

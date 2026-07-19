@@ -1,0 +1,22 @@
+[project]
+name = "margin-maintenance-tracker"
+version = "1.0.0"
+description = "台股融資維持率查詢工具：查詢單一股票代號，自動抓取現價與融資餘額，以 N 日均價推估融資成本並計算維持率；支援盤中即時與盤後收盤兩種模式。"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "httpx>=0.27",
+    "pydantic>=2.6",
+]
+
+# 說明：本專案未以 pip 套件形式安裝使用（無 console-script 進入點），
+# 一律以下列方式直接執行：
+#   開發端：python run.py（或 uv run run.py）
+#   Windows 打包後：雙擊 dist/margin-maintenance-tracker.exe（見 BUILD_WINDOWS.md）
+# 因此本檔不設定 [project.scripts]，run.py / launcher.py 為實際進入點檔案。
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

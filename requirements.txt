@@ -1,0 +1,13 @@
+# margin-maintenance-tracker — 執行期依賴（開發端與 Windows 端共用）
+# 版本採寬鬆下限（>=），避免鎖死小版本造成 Windows 端安裝失敗
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27
+pydantic>=2.6
+
+# 注意：
+# - 以上僅為「執行期」依賴，安裝方式：pip install -r requirements.txt
+# - 「打包期」依賴（pyinstaller）不列於此檔，理由：
+#   1. 一般使用者/開發模式不需要 PyInstaller
+#   2. 避免與其他工具鏈版本衝突
+#   打包所需的 pyinstaller 安裝步驟請見 BUILD_WINDOWS.md

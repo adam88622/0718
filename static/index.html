@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>台股融資維持率查詢</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="page">
+    <header class="app-header">
+      <h1>台股融資維持率查詢</h1>
+      <p class="subtitle">輸入股票代號，查詢即時/收盤價、加權融資成本與融資維持率</p>
+    </header>
+
+    <main class="card">
+      <form id="query-form" class="query-form" autocomplete="off">
+        <div class="form-row">
+          <label for="code-input">股票代號</label>
+          <input
+            type="text"
+            id="code-input"
+            name="code"
+            placeholder="例如 2330"
+            inputmode="numeric"
+            maxlength="4"
+            required
+          >
+        </div>
+        <details class="advanced">
+          <summary>進階選項</summary>
+          <div class="form-row">
+            <label for="n-input">N 日均價天數<br><small>（僅無成本種子的股票 fallback 用；主成本為加權推估，不受此值影響）</small></label>
+            <input
+              type="number"
+              id="n-input"
+              name="n"
+              value="20"
+              min="1"
+              max="250"
+              required
+            >
+          </div>
+        </details>
+        <div class="form-row form-row-btn">
+          <button type="submit" id="submit-btn">查詢</button>
+        </div>
+      </form>
+
+      <div id="loading" class="loading hidden" aria-live="polite">
+        <span class="spinner"></span>
+        <span>查詢中，請稍候…</span>
+      </div>
+
+      <div id="error" class="error-box hidden" role="alert"></div>
+
+      <div id="result" class="result-box"></div>
+    </main>
+
+    <section id="alerts-section" class="card alerts-section">
+      <h2 class="alerts-title">融資維持率警示清單（全市場）</h2>
+      <p class="alerts-desc">
+        掃描所有有融資餘額的上市櫃股票，依維持率由低到高排序；&lt;130% 為整戶追繳線。
+      </p>
+
+      <div class="alerts-controls">
+        <div class="form-row">
+          <label for="alert-filter">門檻篩選</label>
+          <select id="alert-filter">
+            <option value="130">只看 &lt;130%</option>
+            <option value="150">只看 &lt;150%</option>
+            <option value="200" selected>只看 &lt;200%</option>
+            <option value="all">全部</option>
+          </select>
+        </div>
+        <div class="form-row form-row-btn">
+          <button type="button" id="alert-scan-btn">開始掃描</button>
+        </div>
+      </div>
+      <details class="advanced">
+        <summary>進階選項</summary>
+        <div class="form-row">
+          <label for="alert-n">N 日均價天數<br><small>（僅無成本種子的股票 fallback 用）</small></label>
+          <input
+            type="number"
+            id="alert-n"
+            name="alert-n"
+            value="20"
+            min="1"
+            max="250"
+          >
+        </div>
+      </details>
+
+      <div class="alerts-legend">
+        <span class="legend-item"><span class="legend-swatch w-danger"></span>危險 &lt;130%</span>
+        <span class="legend-item"><span class="legend-swatch w-warn1"></span>注意一 130~150%</span>
+        <span class="legend-item"><span class="legend-swatch w-warn2"></span>注意二 150~166.67%</span>
+        <span class="legend-item"><span class="legend-swatch w-safe"></span>安全 ≥166.67%</span>
+      </div>
+
+      <div id="alert-loading" class="loading hidden" aria-live="polite">
+        <span class="spinner"></span>
+        <span>全市場掃描中，首次約需 20~40 秒…</span>
+      </div>
+
+      <div id="alert-error" class="error-box hidden" role="alert"></div>
+
+      <div id="alert-result" class="alert-result-box"></div>
+    </section>
+
+    <section class="disclaimer">
+      <h2>免責說明</h2>
+      <p>
+        本工具所示之「融資成本」為<strong>加權平均成本法推估</strong>（新融資買進以當日收盤入帳、逐日滾動，與券商看盤軟體同法），
+        <strong>並非每位融資戶的實際成本</strong>；無成本種子的標的則退回 <strong>N 日均價</strong>簡易估計（表格會標示）。
+        維持率計算公式為：
+        <code>維持率 = 現價 / （融資成本 × 融資成數 60%）× 100</code>。
+        實際融資維持率應以券商對帳單及交易所公告為準，本工具數據僅供參考，不構成投資建議。
+      </p>
+      <p class="source-note">
+        資料來源：台灣證券交易所（TWSE）、財團法人中華民國證券櫃檯買賣中心（TPEx）。
+      </p>
+    </section>
+
+    <footer class="app-footer">
+      <span id="generated-at-footer"></span>
+    </footer>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
