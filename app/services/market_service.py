@@ -102,7 +102,23 @@ async def get_market_indicator(client: Any, today: date) -> dict[str, Any]:
 
     level = _classify_level(current, ma20, ma60, percentile, vel5)
 
-    spark = merged[-_SPARK_POINTS:]
+    # 為 sparkline 每個點算出當日 MA20/MA60（用完整 values，左緣也正確）
+    def _ma_at(i: int, window: int) -> float | None:
+        if i + 1 < window:
+            return None
+        seg = values[i + 1 - window : i + 1]
+        return round(sum(seg) / window, 2)
+
+    start = max(0, len(merged) - _SPARK_POINTS)
+    spark = [
+        {
+            "date": merged[i]["date"],
+            "ratio": merged[i]["ratio"],
+            "ma20": _ma_at(i, 20),
+            "ma60": _ma_at(i, 60),
+        }
+        for i in range(start, len(merged))
+    ]
 
     return {
         "status": "ok",

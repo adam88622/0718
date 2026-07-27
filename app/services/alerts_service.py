@@ -164,7 +164,9 @@ async def build_alert_list(
         "tse": list(universe.get("tse", {}).keys()),
         "otc": list(universe.get("otc", {}).keys()),
     }
-    matrix = await build_close_matrix(codes_by_market, n, client, today)
+    # 至少抓 60 個交易日：算股價月線(MA20)/季線(MA60) 需要 60 日。
+    ma_days = max(n, 60)
+    matrix = await build_close_matrix(codes_by_market, ma_days, client, today)
     # 加權融資成本（種子 2026-07-17 + 每日滾動）；無種子的標的退回 N 日均價。
     weighted = await compute_current_costs(client, today)
     # 雙閘門所需：個股近期維持率（bundle 種子前 + rolled 種子後）
@@ -194,6 +196,16 @@ async def build_alert_list(
 
             latest_price = recent[-1]
             n_day_avg = round(sum(recent) / len(recent), 2)
+
+            # 股價月線(MA20)/季線(MA60) 與股價位階（用還原斷點後的連續收盤）
+            ma20_price = (
+                round(sum(continuous[-20:]) / 20, 2) if len(continuous) >= 20 else None
+            )
+            ma60_price = (
+                round(sum(continuous[-60:]) / 60, 2) if len(continuous) >= 60 else None
+            )
+            above_ma20 = latest_price > ma20_price if ma20_price else None
+            above_ma60 = latest_price > ma60_price if ma60_price else None
 
             # 融資成本基礎：優先用加權滾動成本（券商級），否則退回 N 日均價
             wc = weighted.get(code)
@@ -231,6 +243,10 @@ async def build_alert_list(
                     "band": _classify_band(ratio),
                     "adjusted": adjusted,
                     "fresh_washout": fresh_washout,
+                    "ma20_price": ma20_price,
+                    "ma60_price": ma60_price,
+                    "above_ma20": above_ma20,
+                    "above_ma60": above_ma60,
                 }
             )
 

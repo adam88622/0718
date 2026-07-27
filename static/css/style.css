@@ -818,3 +818,9 @@ details.advanced small { color: #888; font-weight: 400; }
 .alert-table tbody tr.row-fresh {
   border-left-width: 7px;
 }
+
+/* 警示表：月線/季線位階 */
+.ma-cell { white-space: nowrap; font-size: 0.9em; }
+.ma-cell .ma-up { color: #1565c0; font-weight: 600; margin-right: 4px; }   /* 股價在均線上 */
+.ma-cell .ma-down { color: #e07b00; font-weight: 600; margin-right: 4px; } /* 股價在均線下 */
+.ma-cell .ma-na { color: #aaa; margin-right: 4px; }

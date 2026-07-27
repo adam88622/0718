@@ -80,6 +80,22 @@ function marketLabel(market) {
 }
 
 /**
+ * 股價相對月線(MA20)/季線(MA60) 位階：↑=股價在均線上、↓=在下、—=資料不足
+ */
+function maPosHtml(item) {
+  function tag(label, above, ma) {
+    if (above === null || above === undefined || ma === null || ma === undefined) {
+      return `<span class="ma-na">${label}—</span>`;
+    }
+    const cls = above ? "ma-up" : "ma-down";
+    const arrow = above ? "↑" : "↓";
+    const maTxt = Number(ma).toLocaleString("zh-TW", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return `<span class="${cls}" title="${label}線 ${maTxt}（股價在${above ? "上" : "下"}）">${label}${arrow}</span>`;
+  }
+  return `${tag("月", item.above_ma20, item.ma20_price)} ${tag("季", item.above_ma60, item.ma60_price)}`;
+}
+
+/**
  * 繪製查詢結果卡片（FN-028）
  * @param {Object} data MaintenanceResponse
  */
@@ -446,6 +462,7 @@ function renderAlerts(data, filterMax) {
         nameText += ` <span class="fresh-badge">🆕急殺</span>`;
       }
       const rowClass = bandClass + (item.fresh_washout ? " row-fresh" : "");
+      const maCell = maPosHtml(item);
 
       return `
         <tr class="${rowClass}">
@@ -457,6 +474,7 @@ function renderAlerts(data, filterMax) {
           <td>${marginText} 張</td>
           <td class="ratio-cell">${ratioText}%</td>
           <td><span class="band-pill ${bandClass}">${bandLabel}</span></td>
+          <td class="ma-cell">${maCell}</td>
         </tr>
       `;
     })
@@ -476,6 +494,7 @@ function renderAlerts(data, filterMax) {
             <th>融資餘額</th>
             <th>維持率</th>
             <th>警戒等級</th>
+            <th>月線/季線</th>
           </tr>
         </thead>
         <tbody>
