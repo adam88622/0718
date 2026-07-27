@@ -29,7 +29,18 @@ from app.adapters.bulk import (
 )
 from app.config import TZ, resolve_base_dir
 
-__all__ = ["load_seed", "roll_cost", "compute_current_costs"]
+__all__ = [
+    "load_seed",
+    "roll_cost",
+    "compute_current_costs",
+    "compute_market_gap",
+    "compute_stock_recent",
+]
+
+
+def _is_common(code: str) -> bool:
+    """普通股判斷（排除 ETF/ETN 首碼 0、TDR/權證 91、非 4 碼），供大盤指標用。"""
+    return len(code) == 4 and code.isdigit() and code[0] != "0" and not code.startswith("91")
 
 _SEED_PATH_PARTS = ("app", "data", "margin_cost_seed.json")
 _MAX_ROLL_DAYS = 400  # 保護：種子過舊時的回補上限
@@ -110,13 +121,11 @@ async def _snapshot(day: date, client: Any, today: date) -> tuple[
     return margin, close
 
 
-async def compute_current_costs(
-    client: Any, today: date
-) -> dict[str, dict[str, Any]]:
-    """從種子滾動到最新交易日，回傳每檔目前融資成本。
+async def _roll_all(client: Any, today: date) -> dict[str, Any]:
+    """核心：從種子滾到最新交易日，同時算出每個滾動日的大盤金額加權維持率。
 
-    回傳 `{code: {"value": float, "as_of": "YYYY-MM-DD", "roll_days": int,
-    "source": "加權融資成本"}}`。整體結果快取 `_RESULT_TTL` 秒。
+    回傳 `{"costs": {code: {...}}, "market_gap": [{date,ratio,n}], "seed_date": iso}`。
+    整體結果快取 `_RESULT_TTL` 秒（key=today）。
     """
     tz = ZoneInfo(TZ)
     now = datetime.now(tz)
@@ -129,14 +138,17 @@ async def compute_current_costs(
     costs: dict[str, float] = dict(seed_costs)
     as_of = seed_date
     roll_days = 0
+    market_gap: list[dict[str, Any]] = []
+    # 每檔近 7 個滾動日維持率（供警示雙閘門用）：code -> [(date_iso, ratio)]
+    stock_recent: dict[str, list[tuple[str, float]]] = {}
 
-    # 從種子日+1 逐日滾到 today（含），遇有資料的交易日才 roll
     day = seed_date + timedelta(days=1)
     guard = 0
     while day <= today and guard < _MAX_ROLL_DAYS:
         guard += 1
         margin, close = await _snapshot(day, client, today)
         if margin and close:  # 交易日
+            day_iso = day.isoformat()
             for code, prev in list(costs.items()):
                 bm = margin.get(code)
                 px = close.get(code)
@@ -144,11 +156,39 @@ async def compute_current_costs(
                     continue
                 buy, bal = bm
                 costs[code] = roll_cost(prev, buy, bal, px)
+                # 捕捉該日維持率 = 收盤 /（成本×0.6）×100
+                c = costs[code]
+                if c > 0:
+                    ratio = round(px / (c * 0.6) * 100, 2)
+                    lst = stock_recent.setdefault(code, [])
+                    lst.append((day_iso, ratio))
+                    if len(lst) > 7:
+                        del lst[0]
+            # 該日大盤金額加權維持率（排除 ETF）
+            num = den = 0.0
+            n = 0
+            for code, c in costs.items():
+                if not _is_common(code):
+                    continue
+                bm = margin.get(code)
+                px = close.get(code)
+                if bm is None or px is None or c <= 0:
+                    continue
+                bal = bm[1]
+                if bal <= 0:
+                    continue
+                num += px * bal
+                den += c * bal * 0.6
+                n += 1
+            if den > 0:
+                market_gap.append(
+                    {"date": day.isoformat(), "ratio": round(num / den * 100, 2), "n": n}
+                )
             as_of = day
             roll_days += 1
         day += timedelta(days=1)
 
-    result = {
+    costs_out = {
         code: {
             "value": round(v, 4),
             "as_of": as_of.isoformat(),
@@ -157,5 +197,30 @@ async def compute_current_costs(
         }
         for code, v in costs.items()
     }
+    result = {
+        "costs": costs_out,
+        "market_gap": market_gap,
+        "stock_recent": stock_recent,
+        "seed_date": seed_date.isoformat(),
+    }
     _result_cache[target_key] = (now, result)
     return result
+
+
+async def compute_current_costs(
+    client: Any, today: date
+) -> dict[str, dict[str, Any]]:
+    """回傳每檔目前融資成本 `{code: {value, as_of, roll_days, source}}`。"""
+    return (await _roll_all(client, today))["costs"]
+
+
+async def compute_market_gap(client: Any, today: date) -> list[dict[str, Any]]:
+    """回傳種子日之後每個交易日的大盤金額加權維持率序列（補在 bundle 之後）。"""
+    return (await _roll_all(client, today))["market_gap"]
+
+
+async def compute_stock_recent(
+    client: Any, today: date
+) -> dict[str, list[tuple[str, float]]]:
+    """回傳每檔種子日之後近 7 個交易日維持率 `{code: [(date_iso, ratio)]}`。"""
+    return (await _roll_all(client, today))["stock_recent"]

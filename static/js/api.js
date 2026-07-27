@@ -135,7 +135,38 @@ async function apiGetAlerts(n) {
   return body;
 }
 
+/**
+ * 查詢大盤融資維持率指標（F-012）
+ * 與其他 api 函式不同：non-ok 回應也回傳其 json（不 throw），
+ * 讓 renderMarket 可自行降級顯示「大盤指標暫時無法載入」，不影響其他功能。
+ * @returns {Promise<Object>} MarketResponse JSON（可能為 status:"no_data" 或降級用的 {status:"error"} 物件）
+ */
+async function apiGetMarket() {
+  const url = "/api/market";
+
+  let response;
+  try {
+    response = await fetch(url, { method: "GET" });
+  } catch (networkErr) {
+    return { status: "error", current: null };
+  }
+
+  let body;
+  try {
+    body = await response.json();
+  } catch (parseErr) {
+    body = null;
+  }
+
+  if (!body || typeof body !== "object") {
+    return { status: "error", current: null };
+  }
+
+  return body;
+}
+
 // 掛在 window 供 render.js / app.js 使用（純原生 JS，無 module/import）
 window.apiGetMaintenance = apiGetMaintenance;
 window.apiGetIndustry = apiGetIndustry;
 window.apiGetAlerts = apiGetAlerts;
+window.apiGetMarket = apiGetMarket;

@@ -20,6 +20,7 @@ from app.routes.alerts import router as alerts_router
 from app.routes.health import router as health_router
 from app.routes.industry import router as industry_router
 from app.routes.maintenance import router as maintenance_router
+from app.routes.market import router as market_router
 
 __all__ = ["app", "create_app"]
 
@@ -42,6 +43,7 @@ def create_app() -> FastAPI:
     app.include_router(maintenance_router)
     app.include_router(industry_router)
     app.include_router(alerts_router)
+    app.include_router(market_router)
 
     @app.exception_handler(Exception)
     async def _unhandled_exception_handler(

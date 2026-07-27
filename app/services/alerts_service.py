@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -18,17 +19,82 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from app.adapters.bulk import build_close_matrix, fetch_margin_universe
-from app.config import ALERT_BANDS, ALERT_CACHE_TTL, N_MAX, N_MIN, TZ
+from app.config import (
+    ALERT_BANDS,
+    ALERT_CACHE_TTL,
+    N_MAX,
+    N_MIN,
+    TZ,
+    WARN_DANGER,
+    resolve_base_dir,
+)
 from app.services.calculator import (
     compute_maintenance_ratio,
     trim_recent_continuous,
 )
-from app.services.margin_cost import compute_current_costs
+from app.services.margin_cost import compute_current_costs, compute_stock_recent
 
 __all__ = ["build_alert_list"]
 
 # 模組級快取：key=n，value=(cached_at, result)。
 _cache: dict[int, tuple[datetime, dict[str, Any]]] = {}
+
+# 雙閘門參數（融資清洗框架）
+_LOW_T = WARN_DANGER  # 「低維持率」門檻 = 追繳線 130
+_CHRONIC_DAYS = 5  # 連續 N 日都低 → 排除（慢性套牢）
+_FRESH_FAST_DROP = 8.0  # 近 2 日單日維持率跌幅 ≥ 此值 → 視為「跨得快」
+
+# 個股近期維持率 bundle（種子日前 7 日，from xlsx；載入一次快取）
+_recent_bundle: dict[str, Any] | None = None
+
+
+def _load_recent_bundle() -> dict[str, Any]:
+    """載入 app/data/stock_ratio_recent.json（{dates:[...], ratio:{code:[...]}}）。"""
+    global _recent_bundle
+    if _recent_bundle is not None:
+        return _recent_bundle
+    path = resolve_base_dir() / "app" / "data" / "stock_ratio_recent.json"
+    try:
+        _recent_bundle = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        _recent_bundle = {"dates": [], "ratio": {}}
+    return _recent_bundle
+
+
+def _merged_recent(code: str, bundle: dict[str, Any], rolled: dict[str, list]) -> list[float]:
+    """合併 bundle（種子日前）與 rolled（種子日後）近期維持率，回傳依日期升序的 ratio list。"""
+    dated: dict[str, float] = {}
+    b_dates = bundle.get("dates", [])
+    b_vals = bundle.get("ratio", {}).get(code)
+    if b_vals:
+        for d, v in zip(b_dates, b_vals):
+            if v is not None:
+                dated[d] = float(v)
+    for d, v in rolled.get(code, []):
+        dated[d] = float(v)
+    return [dated[d] for d in sorted(dated)]
+
+
+def _gate_and_tag(recent: list[float]) -> tuple[bool, bool]:
+    """雙閘門判斷。回傳 (exclude_chronic, fresh_washout)。
+
+    - exclude_chronic：最近 `_CHRONIC_DAYS` 日維持率全部 < 門檻 → 慢性套牢，排除。
+    - fresh_washout：現值 < 門檻，且前幾日曾 ≥ 門檻（新跨低），且近 2 日單日
+      跌幅 ≥ `_FRESH_FAST_DROP`（跨得快）→ 急殺清洗，浮到最上面。
+    """
+    if not recent:
+        return False, False
+    current = recent[-1]
+    tail = recent[-_CHRONIC_DAYS:]
+    if len(tail) >= _CHRONIC_DAYS and all(r < _LOW_T for r in tail):
+        return True, False  # 慢性套牢
+    if current < _LOW_T:
+        prior = recent[-4:-1] if len(recent) >= 2 else []
+        newly_below = any(r >= _LOW_T for r in prior)
+        fast = len(recent) >= 2 and (recent[-2] - current) >= _FRESH_FAST_DROP
+        if newly_below and fast:
+            return False, True
+    return False, False
 
 
 def _clamp_n(n: int) -> int:
@@ -101,9 +167,13 @@ async def build_alert_list(
     matrix = await build_close_matrix(codes_by_market, n, client, today)
     # 加權融資成本（種子 2026-07-17 + 每日滾動）；無種子的標的退回 N 日均價。
     weighted = await compute_current_costs(client, today)
+    # 雙閘門所需：個股近期維持率（bundle 種子前 + rolled 種子後）
+    recent_bundle = _load_recent_bundle()
+    rolled_recent = await compute_stock_recent(client, today)
 
     items: list[dict[str, Any]] = []
     excluded = 0
+    chronic_excluded = 0
 
     for market in ("tse", "otc"):
         margin_map: dict[str, int] = universe.get(market, {}) or {}
@@ -139,6 +209,13 @@ async def build_alert_list(
                 excluded += 1
                 continue
 
+            # 雙閘門：排除慢性套牢（連續5日低），標記急殺清洗
+            recent_ratios = _merged_recent(code, recent_bundle, rolled_recent)
+            exclude_chronic, fresh_washout = _gate_and_tag(recent_ratios)
+            if exclude_chronic:
+                chronic_excluded += 1
+                continue
+
             items.append(
                 {
                     "code": code,
@@ -153,10 +230,13 @@ async def build_alert_list(
                     "ratio": ratio,
                     "band": _classify_band(ratio),
                     "adjusted": adjusted,
+                    "fresh_washout": fresh_washout,
                 }
             )
 
-    items.sort(key=lambda item: item["ratio"])
+    # 急殺清洗浮到最上面（fresh 優先），其餘依維持率升序
+    items.sort(key=lambda item: (0 if item.get("fresh_washout") else 1, item["ratio"]))
+    fresh_count = sum(1 for i in items if i.get("fresh_washout"))
 
     result: dict[str, Any] = {
         "n_requested": n,
@@ -165,6 +245,9 @@ async def build_alert_list(
         "margin_as_of_otc": universe.get("as_of_otc"),
         "count": len(items),
         "excluded": excluded,
+        "chronic_excluded": chronic_excluded,
+        "fresh_count": fresh_count,
+        "low_threshold": _LOW_T,
         "bands": _bands_description(),
         "items": items,
         "generated_at": now.isoformat(),

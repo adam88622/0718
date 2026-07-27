@@ -7,7 +7,35 @@ from datetime import date
 import pytest
 
 from app.services import alerts_service
-from app.services.alerts_service import _classify_band, build_alert_list
+from app.services.alerts_service import (
+    _classify_band,
+    _gate_and_tag,
+    build_alert_list,
+)
+
+
+class TestGateAndTag:
+    def test_chronic_excluded(self) -> None:
+        # 連續 5 日都 <130 → 排除
+        exclude, fresh = _gate_and_tag([125, 122, 120, 118, 115])
+        assert exclude is True and fresh is False
+
+    def test_fresh_washout(self) -> None:
+        # 前幾日 >=130，今日急殺跌破且單日跌幅大 → 急殺清洗
+        exclude, fresh = _gate_and_tag([160, 158, 155, 150, 125])
+        assert exclude is False and fresh is True
+
+    def test_slow_drift_below_not_fresh(self) -> None:
+        # 緩跌跌破、單日跌幅小 → 非急殺
+        exclude, fresh = _gate_and_tag([133, 132, 131, 130, 129])
+        assert fresh is False
+
+    def test_healthy_not_flagged(self) -> None:
+        exclude, fresh = _gate_and_tag([180, 178, 176, 175, 174])
+        assert exclude is False and fresh is False
+
+    def test_empty(self) -> None:
+        assert _gate_and_tag([]) == (False, False)
 
 
 class TestClassifyBand:
@@ -61,9 +89,17 @@ def patch_bulk(monkeypatch: pytest.MonkeyPatch):
             # 預設回空 → build_alert_list 退回 N 日均價路徑，保留既有測試預期。
             return {}
 
+        async def _fake_stock_recent(client, today):
+            # 預設回空 → 雙閘門不排除、不標記，保留既有測試預期。
+            return {}
+
         monkeypatch.setattr(alerts_service, "fetch_margin_universe", _fake_universe)
         monkeypatch.setattr(alerts_service, "build_close_matrix", _fake_matrix)
         monkeypatch.setattr(alerts_service, "compute_current_costs", _fake_costs)
+        monkeypatch.setattr(alerts_service, "compute_stock_recent", _fake_stock_recent)
+        monkeypatch.setattr(
+            alerts_service, "_load_recent_bundle", lambda: {"dates": [], "ratio": {}}
+        )
 
     return _apply
 

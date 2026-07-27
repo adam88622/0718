@@ -387,6 +387,15 @@ function renderAlerts(data, filterMax) {
       ? items
       : items.filter((item) => typeof item.ratio === "number" && item.ratio <= Number(filterMax));
 
+  const freshCountHtml =
+    data.fresh_count !== null && data.fresh_count !== undefined
+      ? `<span>急殺 <strong>${escapeHtml(data.fresh_count)}</strong> 檔</span>`
+      : "";
+  const chronicExcludedHtml =
+    data.chronic_excluded !== null && data.chronic_excluded !== undefined
+      ? `<span>慢性套牢排除 <strong>${escapeHtml(data.chronic_excluded)}</strong> 檔</span>`
+      : "";
+
   const statsHtml = `
     <div class="alert-stats">
       <span>掃描 <strong>${escapeHtml(data.count)}</strong> 檔</span>
@@ -395,6 +404,8 @@ function renderAlerts(data, filterMax) {
       <span>融資日（上市）<strong>${escapeHtml(data.margin_as_of_tse)}</strong></span>
       <span>融資日（上櫃）<strong>${escapeHtml(data.margin_as_of_otc)}</strong></span>
       <span>符合篩選 <strong>${filtered.length}</strong> 檔</span>
+      ${freshCountHtml}
+      ${chronicExcludedHtml}
     </div>
   `;
 
@@ -430,10 +441,14 @@ function renderAlerts(data, filterMax) {
       }
       const marginText =
         typeof item.margin_lots === "number" ? item.margin_lots.toLocaleString("zh-TW") : "—";
-      const nameText = item.name ? escapeHtml(item.name) : escapeHtml(item.code);
+      let nameText = item.name ? escapeHtml(item.name) : escapeHtml(item.code);
+      if (item.fresh_washout) {
+        nameText += ` <span class="fresh-badge">🆕急殺</span>`;
+      }
+      const rowClass = bandClass + (item.fresh_washout ? " row-fresh" : "");
 
       return `
-        <tr class="${bandClass}">
+        <tr class="${rowClass}">
           <td>${escapeHtml(item.code)}</td>
           <td>${nameText}</td>
           <td>${escapeHtml(marketLabel(item.market))}</td>
@@ -471,6 +486,157 @@ function renderAlerts(data, filterMax) {
   `;
 }
 
+/* ==========================================================================
+   大盤融資維持率指標橫幅（F-012）
+   ========================================================================== */
+
+/**
+ * 依大盤位階回傳對應 CSS class（沿用既有 w-danger/w-warn1/w-safe/w-na 色系）
+ * @param {"extreme_washout"|"washing"|"overheated"|"normal"|string|null|undefined} level
+ * @returns {string}
+ */
+function marketLevelClass(level) {
+  switch (level) {
+    case "extreme_washout":
+      return "w-safe";
+    case "washing":
+      return "w-warn1";
+    case "overheated":
+      return "w-danger";
+    case "normal":
+    default:
+      return "w-na";
+  }
+}
+
+/**
+ * 繪製大盤走勢迷你 SVG sparkline（手繪折線，無圖表庫）
+ * @param {Array<{date:string, ratio:number}>} series
+ * @param {number|null|undefined} ma60 若提供，畫一條 MA60 虛線參考線
+ * @param {string} levelClass 沿用 w-* class 供 currentColor 上色
+ * @returns {string} HTML（含外層 wrap 與 svg）
+ */
+function buildMarketSparkline(series, ma60, levelClass) {
+  const values = Array.isArray(series)
+    ? series.map((p) => p && p.ratio).filter((v) => typeof v === "number" && !Number.isNaN(v))
+    : [];
+
+  if (values.length === 0) {
+    return "";
+  }
+
+  let min = Math.min.apply(null, values);
+  let max = Math.max.apply(null, values);
+  if (typeof ma60 === "number" && !Number.isNaN(ma60)) {
+    min = Math.min(min, ma60);
+    max = Math.max(max, ma60);
+  }
+  if (min === max) {
+    min -= 1;
+    max += 1;
+  }
+
+  const w = 600;
+  const h = 48;
+  const pad = 3;
+  const n = values.length;
+  const scaleY = (v) => h - pad - ((v - min) / (max - min)) * (h - pad * 2);
+
+  const points = values
+    .map((v, i) => {
+      const x = n === 1 ? 0 : (i / (n - 1)) * w;
+      return x.toFixed(1) + "," + scaleY(v).toFixed(1);
+    })
+    .join(" ");
+
+  let ma60Line = "";
+  if (typeof ma60 === "number" && !Number.isNaN(ma60)) {
+    const y = scaleY(ma60).toFixed(1);
+    ma60Line = `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="currentColor" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="5 4"></line>`;
+  }
+
+  return `
+    <div class="market-spark-wrap ${levelClass}">
+      <svg class="market-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" width="100%" height="48" role="img" aria-label="大盤融資維持率近期走勢">
+        ${ma60Line}
+        <polyline points="${points}" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+      </svg>
+    </div>
+  `;
+}
+
+/**
+ * 繪製大盤融資維持率指標橫幅（F-012）
+ * @param {Object} data MarketResponse（見 GET /api/market 契約），亦可能是降級用的 {status:"error"|"no_data"} 物件
+ */
+function renderMarket(data) {
+  const bodyEl = document.getElementById("market-banner-body");
+  if (!bodyEl) return;
+
+  if (!data || data.status !== "ok" || data.current === null || data.current === undefined) {
+    bodyEl.innerHTML = `<div class="market-banner-degraded">大盤指標暫時無法載入</div>`;
+    return;
+  }
+
+  const levelClass = marketLevelClass(data.level);
+  const levelLabel = data.level_zh || "—";
+
+  const currentText = Number(data.current).toLocaleString("zh-TW", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  const subParts = [];
+  if (data.as_of) subParts.push(escapeHtml(data.as_of));
+  if (data.constituents !== null && data.constituents !== undefined) {
+    subParts.push(escapeHtml(data.constituents) + " 檔成分股");
+  }
+  const subText = subParts.join(" ・ ");
+
+  let velocityText = "—";
+  if (typeof data.velocity_5d === "number" && !Number.isNaN(data.velocity_5d)) {
+    const sign = data.velocity_5d > 0 ? "+" : "";
+    velocityText =
+      "5日 " + sign + data.velocity_5d.toLocaleString("zh-TW", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  const ma20Text =
+    typeof data.ma20 === "number"
+      ? data.ma20.toLocaleString("zh-TW", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : "—";
+  const ma60Text =
+    typeof data.ma60 === "number"
+      ? data.ma60.toLocaleString("zh-TW", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : "—";
+
+  let percentileText = "—";
+  if (typeof data.percentile === "number" && !Number.isNaN(data.percentile)) {
+    const pct = (data.percentile * 100).toLocaleString("zh-TW", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    percentileText = "近120日 第" + pct + "%低位";
+  }
+
+  const sparklineHtml = buildMarketSparkline(data.series, data.ma60, levelClass);
+
+  bodyEl.innerHTML = `
+    <div class="market-banner-flex">
+      <div class="market-banner-left">
+        <div class="market-banner-value">${currentText}<span class="unit">%</span></div>
+        <div class="market-banner-sub">${subText}</div>
+      </div>
+      <div class="market-banner-mid">
+        <span class="band-pill market-level-pill ${levelClass}">${escapeHtml(levelLabel)}</span>
+        <div class="market-banner-velocity">${escapeHtml(velocityText)}</div>
+      </div>
+      <div class="market-banner-right">
+        <div class="market-banner-mini">MA20 ${ma20Text}</div>
+        <div class="market-banner-mini">MA60 ${ma60Text}</div>
+        <div class="market-banner-percentile">${escapeHtml(percentileText)}</div>
+      </div>
+    </div>
+    ${sparklineHtml}
+  `;
+}
+
 // 掛在 window 供 app.js 使用（純原生 JS，無 module/import）
 window.warningClass = warningClass;
 window.renderResult = renderResult;
@@ -482,3 +648,6 @@ window.renderAlerts = renderAlerts;
 window.showAlertLoading = showAlertLoading;
 window.renderAlertError = renderAlertError;
 window.clearAlertError = clearAlertError;
+window.marketLevelClass = marketLevelClass;
+window.buildMarketSparkline = buildMarketSparkline;
+window.renderMarket = renderMarket;
