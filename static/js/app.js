@@ -92,17 +92,100 @@
      大盤融資維持率指標橫幅（F-012）
      頁面載入即呼叫，失敗靜默降級，不阻塞其他功能
      ------------------------------------------------------------------ */
+  var lastDailyMarket = null; // 暫存日更大盤資料，供「即時模式」切換 OFF 時還原顯示
+
   document.addEventListener("DOMContentLoaded", function () {
     try {
       apiGetMarket()
         .then(function (data) {
+          lastDailyMarket = data;
           renderMarket(data);
         })
         .catch(function () {
+          lastDailyMarket = null;
           renderMarket(null);
         });
     } catch (e) {
       // 靜默失敗，不影響單股查詢 / 警示清單功能
+    }
+  });
+
+  /* ------------------------------------------------------------------
+     大盤融資維持率「即時模式」切換（F-013）
+     預設不開啟即時（避免一進頁面就打 MIS），使用者點擊切換按鈕才啟動輪詢
+     ------------------------------------------------------------------ */
+  var marketLiveOn = false;
+  var marketLiveTimer = null;
+  var isMarketLiveBusy = false; // 防重複點擊 / 重疊輪詢
+
+  function setMarketLiveStatus(text) {
+    var statusEl = document.getElementById("market-live-status");
+    if (statusEl) statusEl.textContent = text || "";
+  }
+
+  function stopMarketLivePolling() {
+    if (marketLiveTimer) {
+      clearInterval(marketLiveTimer);
+      marketLiveTimer = null;
+    }
+  }
+
+  async function refreshMarketLiveOnce() {
+    if (isMarketLiveBusy) return;
+    isMarketLiveBusy = true;
+    try {
+      var live = await apiGetMarketLive();
+      renderMarketLive(live, lastDailyMarket);
+      if (live && live.session === "intraday") {
+        setMarketLiveStatus("即時更新中（每60秒）");
+      } else {
+        setMarketLiveStatus("已收盤，顯示最後即時");
+      }
+    } catch (e) {
+      // 降級：維持目前畫面，不拋出中斷其他功能
+    } finally {
+      isMarketLiveBusy = false;
+    }
+  }
+
+  async function handleMarketLiveToggle() {
+    var toggleBtn = document.getElementById("market-live-toggle");
+    if (!toggleBtn || toggleBtn.disabled) return;
+
+    toggleBtn.disabled = true;
+    try {
+      if (!marketLiveOn) {
+        // 切成 ON
+        marketLiveOn = true;
+        toggleBtn.textContent = "即時中・點此關閉";
+
+        var live = await apiGetMarketLive();
+        renderMarketLive(live, lastDailyMarket);
+
+        if (live && live.session === "intraday") {
+          setMarketLiveStatus("即時更新中（每60秒）");
+          stopMarketLivePolling();
+          marketLiveTimer = setInterval(refreshMarketLiveOnce, 60000);
+        } else {
+          setMarketLiveStatus("已收盤，顯示最後即時");
+        }
+      } else {
+        // 切成 OFF
+        marketLiveOn = false;
+        stopMarketLivePolling();
+        toggleBtn.textContent = "切換即時";
+        setMarketLiveStatus("");
+        renderMarket(lastDailyMarket);
+      }
+    } finally {
+      toggleBtn.disabled = false;
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var liveToggleBtn = document.getElementById("market-live-toggle");
+    if (liveToggleBtn) {
+      liveToggleBtn.addEventListener("click", handleMarketLiveToggle);
     }
   });
 

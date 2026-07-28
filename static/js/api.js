@@ -165,8 +165,42 @@ async function apiGetMarket() {
   return body;
 }
 
+/**
+ * 查詢大盤「即時」融資維持率（F-013）
+ * 與 apiGetMarket 相同的降級策略：non-ok 回應也回傳其 json（不 throw），
+ * 讓 renderMarketLive 可自行降級顯示，不影響其他功能。
+ * @returns {Promise<Object>} MarketLiveResponse JSON
+ *   {status, session, live_ratio, close_ratio, delta, close_as_of,
+ *    live_count, top_n, constituents, live_coverage, ma20, ma60, generated_at}
+ *   或降級用的 {status:"error"} 物件
+ */
+async function apiGetMarketLive() {
+  const url = "/api/market/live";
+
+  let response;
+  try {
+    response = await fetch(url, { method: "GET" });
+  } catch (networkErr) {
+    return { status: "error" };
+  }
+
+  let body;
+  try {
+    body = await response.json();
+  } catch (parseErr) {
+    body = null;
+  }
+
+  if (!body || typeof body !== "object") {
+    return { status: "error" };
+  }
+
+  return body;
+}
+
 // 掛在 window 供 render.js / app.js 使用（純原生 JS，無 module/import）
 window.apiGetMaintenance = apiGetMaintenance;
 window.apiGetIndustry = apiGetIndustry;
 window.apiGetAlerts = apiGetAlerts;
 window.apiGetMarket = apiGetMarket;
+window.apiGetMarketLive = apiGetMarketLive;

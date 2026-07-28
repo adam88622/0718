@@ -656,6 +656,68 @@ function renderMarket(data) {
   `;
 }
 
+/**
+ * 繪製大盤融資維持率「即時模式」橫幅（F-013）
+ * 沿用既有 renderMarket 畫出完整日更版面（sparkline / MA20 / MA60 / 位階 / 5日速度等不變），
+ * 再將左側大數字覆蓋為即時值，並在其下加一行「即時 vs 收盤」對照。
+ * @param {Object} live MarketLiveResponse（見 GET /api/market/live 契約），可能為降級用 {status:"error"} 物件
+ * @param {Object} daily MarketResponse（GET /api/market 的既有日更資料，用來維持 sparkline/MA/位階顯示）
+ */
+function renderMarketLive(live, daily) {
+  const bodyEl = document.getElementById("market-banner-body");
+  if (!bodyEl) return;
+
+  // 先用既有日更資料畫出完整橫幅（sparkline / MA20 / MA60 / 位階 / 5日速度維持不變）
+  renderMarket(daily);
+
+  if (!live || live.status !== "ok" || live.live_ratio === null || live.live_ratio === undefined) {
+    // 即時資料整體不可用（例如 API 連線失敗），退回上面已畫好的日更顯示即可
+    return;
+  }
+
+  const leftEl = bodyEl.querySelector(".market-banner-left");
+  if (!leftEl) return;
+
+  const valueEl = leftEl.querySelector(".market-banner-value");
+  if (!valueEl) return;
+
+  const liveText = Number(live.live_ratio).toLocaleString("zh-TW", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  let timeText = "";
+  if (live.generated_at) {
+    const m = String(live.generated_at).match(/T(\d{2}):(\d{2})/);
+    if (m) timeText = m[1] + ":" + m[2];
+  }
+  const liveTagHtml = timeText ? `<span class="live-tag">即時 ${escapeHtml(timeText)}</span>` : "";
+
+  const degraded = live.live_coverage === 0 || live.live_coverage === null || live.live_coverage === undefined;
+  const degradedHtml = degraded ? `<span class="live-degraded">（即時暫不可用，顯示收盤）</span>` : "";
+
+  valueEl.innerHTML = `${liveText}<span class="unit">%</span>${liveTagHtml}${degradedHtml}`;
+
+  const closeText =
+    typeof live.close_ratio === "number"
+      ? live.close_ratio.toLocaleString("zh-TW", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : "—";
+  const deltaSign = typeof live.delta === "number" && live.delta > 0 ? "+" : "";
+  const deltaText =
+    typeof live.delta === "number"
+      ? deltaSign + live.delta.toLocaleString("zh-TW", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : "—";
+
+  // 即時 vs 收盤對照行：沿用同一個節點以便輪詢刷新時就地更新，不重複疊加
+  let refEl = leftEl.querySelector(".market-live-ref");
+  if (!refEl) {
+    refEl = document.createElement("div");
+    refEl.className = "market-live-ref";
+    leftEl.appendChild(refEl);
+  }
+  refEl.innerHTML = `收盤基準 ${closeText}%（${escapeHtml(live.close_as_of || "")}）・即時 vs 收盤 ${escapeHtml(deltaText)}`;
+}
+
 // 掛在 window 供 app.js 使用（純原生 JS，無 module/import）
 window.warningClass = warningClass;
 window.renderResult = renderResult;
@@ -670,3 +732,4 @@ window.clearAlertError = clearAlertError;
 window.marketLevelClass = marketLevelClass;
 window.buildMarketSparkline = buildMarketSparkline;
 window.renderMarket = renderMarket;
+window.renderMarketLive = renderMarketLive;

@@ -12,13 +12,20 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
-from app.config import MIS_REFERER, MIS_STOCK_INFO_URL
+from app.config import (
+    LIVE_MARKET_CHUNK,
+    LIVE_MARKET_CONCURRENCY,
+    MIS_REFERER,
+    MIS_STOCK_INFO_BATCH_URL,
+    MIS_STOCK_INFO_URL,
+)
 from app.utils.errors import no_data_block
 from app.utils.trading_session import is_intraday_for
 
-__all__ = ["fetch_price"]
+__all__ = ["fetch_price", "fetch_prices_mis_batch"]
 
 _SOURCE = "TWSE-MIS"
 
@@ -99,3 +106,54 @@ async def fetch_price(code: str, market: str, client: Any) -> dict[str, Any]:
         }
     except Exception:  # noqa: BLE001 - 保底，任何解析例外一律降級
         return no_data_block(_SOURCE)
+
+
+async def fetch_prices_mis_batch(
+    pairs: list[tuple[str, str]], client: Any
+) -> dict[str, float]:
+    """批次抓即時價（供即時大盤）。
+
+    參數 `pairs`：`[(code, market), ...]`，market 為 "tse"/"otc"。
+    以 MIS 批次端點（ex_ch 多檔以 | 串接）分批查詢，每批 `LIVE_MARKET_CHUNK` 檔、
+    並行度 `LIVE_MARKET_CONCURRENCY`（低，避免 MIS 限流）。取 `z`（現價），
+    `z` 為 "-"/空/0 時退用昨收 `y`。回傳 `{code: price}`；抓不到的檔略過
+    （由呼叫端以收盤價補），全程 try/except 不拋例外。
+    """
+    result: dict[str, float] = {}
+    if not pairs:
+        return result
+    chunks = [
+        pairs[i : i + LIVE_MARKET_CHUNK]
+        for i in range(0, len(pairs), LIVE_MARKET_CHUNK)
+    ]
+    sem = asyncio.Semaphore(LIVE_MARKET_CONCURRENCY)
+
+    async def _one(chunk: list[tuple[str, str]]) -> dict[str, float]:
+        ex_ch = "|".join(f"{m}_{c}.tw" for c, m in chunk)
+        url = MIS_STOCK_INFO_BATCH_URL.format(ex_ch=ex_ch)
+        out: dict[str, float] = {}
+        async with sem:
+            try:
+                resp = await client.get(url, headers={"Referer": MIS_REFERER})
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception:  # noqa: BLE001 - 該批失敗，交由收盤補
+                return out
+        for msg in (data.get("msgArray") or []) if isinstance(data, dict) else []:
+            code = str(msg.get("c") or "").strip()
+            if not code:
+                continue
+            price = _to_float(msg.get("z"))
+            if price is None or price <= 0:
+                price = _to_float(msg.get("y"))  # 昨收 fallback
+            if price is not None and price > 0:
+                out[code] = price
+        return out
+
+    results = await asyncio.gather(
+        *(_one(c) for c in chunks), return_exceptions=True
+    )
+    for r in results:
+        if isinstance(r, dict):
+            result.update(r)
+    return result

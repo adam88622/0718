@@ -45,6 +45,18 @@ MIS_STOCK_INFO_URL: str = (
     "?ex_ch={prefix}_{code}.tw&json=1&delay=0"
 )
 
+# MIS 批次即時報價（多檔 ex_ch 以 | 串接）：ex_ch=tse_2330.tw|tse_2317.tw|...
+# 用法：MIS_STOCK_INFO_BATCH_URL.format(ex_ch="tse_2330.tw|otc_6488.tw")
+MIS_STOCK_INFO_BATCH_URL: str = (
+    "https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch={ex_ch}&json=1&delay=0"
+)
+
+# 即時大盤（F-013）：權重前 N 大即時抓取檔數、批次大小、並行、快取秒數
+LIVE_MARKET_TOP_N: int = 180  # 依融資市值取前 N 大即時抓價，其餘用收盤
+LIVE_MARKET_CHUNK: int = 50  # MIS 批次每次查幾檔
+LIVE_MARKET_CONCURRENCY: int = 2  # 批次並行度（低，避免 MIS 限流）
+LIVE_MARKET_TTL: int = 60  # 即時大盤結果快取秒數
+
 # N 日歷史收盤 — 上市 TWSE STOCK_DAY（每股每月）
 # 用法：TWSE_STOCK_DAY_URL.format(date="20260701", code="2330")  # date=YYYYMMDD
 TWSE_STOCK_DAY_URL: str = (
