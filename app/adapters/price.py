@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from app.adapters.history_yahoo import fetch_history_yahoo
 from app.config import (
     LIVE_MARKET_CHUNK,
     LIVE_MARKET_CONCURRENCY,
@@ -54,33 +55,61 @@ def _best_quote_price(field: Any) -> float | None:
     return _to_float(first)
 
 
+async def _yahoo_close_fallback(
+    code: str, market: str, client: Any
+) -> dict[str, Any] | None:
+    """MIS 失敗（如限流）時，改用 Yahoo 最新收盤當現價，讓維持率仍可計算。
+
+    Yahoo 走 query1.finance.yahoo.com（非 MIS 主機，不受 MIS 限流影響）。
+    回傳 PriceBlock 相容 dict（price_type="收盤"、is_fallback=True、source="Yahoo收盤"），
+    取不到回 None。
+    """
+    try:
+        series = await fetch_history_yahoo(code, market, 5, client)
+        if not series:
+            return None
+        last_date, last_close = series[-1]
+        if last_close is None or last_close <= 0:
+            return None
+        return {
+            "value": round(float(last_close), 2),
+            "price_type": "收盤",
+            "is_fallback": True,
+            "prev_close": series[-2][1] if len(series) >= 2 else None,
+            "as_of": last_date.isoformat(),
+            "name": None,
+            "source": "Yahoo收盤",
+            "status": "ok",
+        }
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def fetch_price(code: str, market: str, client: Any) -> dict[str, Any]:
     """取單一代號現價，回傳與 `PriceBlock` 相容的 dict。
+
+    優先 MIS 即時；MIS 無回應/限流（無價）時，退用 Yahoo 最新收盤，
+    確保維持率不因單一即時源掛掉就「無法計算」。
 
     參數：
         code: 已正規化的 4 碼股票代號。
         market: "tse" 或 "otc"（由 `detect_market` 決定）。
         client: 共用 httpx.AsyncClient。
     """
+    mis_ok = False
+    result: dict[str, Any] = no_data_block(_SOURCE)
     url = MIS_STOCK_INFO_URL.format(prefix=market, code=code)
     try:
         resp = await client.get(url, headers={"Referer": MIS_REFERER})
         resp.raise_for_status()
         data = resp.json()
         msg_array = data.get("msgArray") if isinstance(data, dict) else None
-        if not msg_array:
-            return no_data_block(_SOURCE)
-        msg: dict[str, Any] = msg_array[0]
-    except Exception:  # noqa: BLE001 - 端點無回應/解析失敗 → 降級
-        return no_data_block(_SOURCE)
+        msg: dict[str, Any] = msg_array[0] if msg_array else {}
 
-    try:
         prev_close = _to_float(msg.get("y"))
         value = _to_float(msg.get("z"))
         is_fallback = False
-
         if value is None:
-            # z 為 "-" 或無法解析 → 中間價 fallback，再退昨收
             best_ask = _best_quote_price(msg.get("a"))
             best_bid = _best_quote_price(msg.get("b"))
             if best_ask is not None and best_bid is not None:
@@ -89,23 +118,30 @@ async def fetch_price(code: str, market: str, client: Any) -> dict[str, Any]:
                 value = prev_close
             is_fallback = True
 
-        data_date = str(msg.get("d") or "")
-        data_time = str(msg.get("t") or "")
-        price_type = is_intraday_for(data_date) if data_date else "收盤"
-        as_of = f"{data_time} / {data_date}"
+        if value is not None:
+            data_date = str(msg.get("d") or "")
+            data_time = str(msg.get("t") or "")
+            price_type = is_intraday_for(data_date) if data_date else "收盤"
+            result = {
+                "value": value,
+                "price_type": price_type,
+                "is_fallback": is_fallback,
+                "prev_close": prev_close,
+                "as_of": f"{data_time} / {data_date}",
+                "name": msg.get("n"),
+                "source": _SOURCE,
+                "status": "ok",
+            }
+            mis_ok = True
+    except Exception:  # noqa: BLE001 - MIS 無回應/解析失敗 → 走 Yahoo fallback
+        mis_ok = False
 
-        return {
-            "value": value,
-            "price_type": price_type,
-            "is_fallback": is_fallback,
-            "prev_close": prev_close,
-            "as_of": as_of,
-            "name": msg.get("n"),
-            "source": _SOURCE,
-            "status": "ok",
-        }
-    except Exception:  # noqa: BLE001 - 保底，任何解析例外一律降級
-        return no_data_block(_SOURCE)
+    if mis_ok:
+        return result
+
+    # MIS 取不到現價 → Yahoo 收盤 fallback
+    yahoo = await _yahoo_close_fallback(code, market, client)
+    return yahoo if yahoo is not None else no_data_block(_SOURCE)
 
 
 async def fetch_prices_mis_batch(
